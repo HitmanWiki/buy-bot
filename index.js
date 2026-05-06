@@ -105,7 +105,8 @@ async function refreshPrice() {
 
 async function checkLatestBlock() {
     try {
-        const provider = new ethers.JsonRpcProvider(RPC_URL);
+        // ✅ FIXED: ethers v5 syntax
+        const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
         const currentBlock = await provider.getBlockNumber();
         
         if (!lastProcessedBlock) {
@@ -139,7 +140,8 @@ async function checkLatestBlock() {
                         const fromAddr = "0x" + log.topics[1].slice(26);
                         const toAddr = "0x" + log.topics[2].slice(26);
                         const value = BigInt(log.data);
-                        const pixelAmount = Number(ethers.formatEther(value));
+                        // ✅ FIXED: ethers v5 syntax
+                        const pixelAmount = Number(ethers.utils.formatEther(value));
                         
                         if (pixelAmount < MIN_PIXEL_AMOUNT) continue;
                         

@@ -6,7 +6,7 @@ require("dotenv").config();
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const RPC_URL = process.env.MONAD_RPC_URL;
-const PIXEL_TOKEN = process.env.PIXEL_TOKEN_ADDRESS;
+const zlur_TOKEN = process.env.zlur_TOKEN_ADDRESS;
 
 // The Uniswap V3 Pool address (where buys come FROM)
 const POOL_ADDRESS = "0xC5C77b7aBD9BBeF47e06e234313C1eB413EcA52d".toLowerCase();
@@ -15,7 +15,7 @@ const bot = new TelegramBot(TOKEN, { polling: false });
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-const MIN_PIXEL_AMOUNT = 100; // Minimum 100 PIXEL to alert
+const MIN_zlur_AMOUNT = 100; // Minimum 100 zlur to alert
 
 const GIFS = {
     small: "https://zlurpeeonmonad.fun/buy.mp4",
@@ -42,7 +42,7 @@ function getGif(usdAmount) {
 async function getTokenData() {
     try {
         const response = await axios.get(
-            `https://api.dexscreener.com/latest/dex/search?q=${PIXEL_TOKEN}`,
+            `https://api.dexscreener.com/latest/dex/search?q=${zlur_TOKEN}`,
             { timeout: 5000 }
         );
         if (response.data.pairs && response.data.pairs[0]) {
@@ -56,15 +56,15 @@ async function getTokenData() {
     return { price: 0.00000703, marketCap: 7034 };
 }
 
-function formatMessage(usdSpent, monSpent, pixelAmount, txHash, marketCap, buyerAddress) {
+function formatMessage(usdSpent, monSpent, zlurAmount, txHash, marketCap, buyerAddress) {
     const emojis = getEmojis(usdSpent);
     const txUrl = `https://monadexplorer.com/tx/${txHash}`;
     const buyerUrl = `https://monadexplorer.com/address/${buyerAddress}`;
-    const dexUrl = `https://dexscreener.com/monad/${PIXEL_TOKEN}`;
+    const dexUrl = `https://dexscreener.com/monad/${zlur_TOKEN}`;
     
     return `${emojis}\n\n` +
            `🔀 Spent <b>$${usdSpent.toFixed(2)}</b> (${monSpent.toFixed(4)} MON)\n` +
-           `🔀 Got <b>${pixelAmount.toLocaleString()}</b> PIXEL\n` +
+           `🔀 Got <b>${zlurAmount.toLocaleString()}</b> zlur\n` +
            `👤 <a href="${buyerUrl}">Buyer</a> | <a href="${txUrl}">TX</a>\n` +
            `🪙 <b>New Holder</b>\n` +
            `💸 Market Cap <b>$${marketCap.toLocaleString()}</b>\n\n` +
@@ -74,9 +74,9 @@ function formatMessage(usdSpent, monSpent, pixelAmount, txHash, marketCap, buyer
            `<a href="https://dexscreener.com/trending">Trending</a>`;
 }
 
-async function sendAlert(usdSpent, monSpent, pixelAmount, txHash, marketCap, buyerAddress) {
+async function sendAlert(usdSpent, monSpent, zlurAmount, txHash, marketCap, buyerAddress) {
     try {
-        const message = formatMessage(usdSpent, monSpent, pixelAmount, txHash, marketCap, buyerAddress);
+        const message = formatMessage(usdSpent, monSpent, zlurAmount, txHash, marketCap, buyerAddress);
         const gifUrl = getGif(usdSpent);
         
         await bot.sendAnimation(CHAT_ID, gifUrl, {
@@ -120,7 +120,7 @@ async function checkLatestBlock() {
             for (let block = lastProcessedBlock + 1; block <= currentBlock; block++) {
                 try {
                     const filter = {
-                        address: PIXEL_TOKEN,
+                        address: zlur_TOKEN,
                         topics: [TRANSFER_TOPIC],
                         fromBlock: block,
                         toBlock: block
@@ -141,11 +141,11 @@ async function checkLatestBlock() {
                         const toAddr = "0x" + log.topics[2].slice(26);
                         const value = BigInt(log.data);
                         // ✅ FIXED: ethers v5 syntax
-                        const pixelAmount = Number(ethers.utils.formatEther(value));
+                        const zlurAmount = Number(ethers.utils.formatEther(value));
                         
-                        if (pixelAmount < MIN_PIXEL_AMOUNT) continue;
+                        if (zlurAmount < MIN_zlur_AMOUNT) continue;
                         
-                        const usdValue = pixelAmount * lastPrice;
+                        const usdValue = zlurAmount * lastPrice;
                         
                         // CORRECT BUY DETECTION:
                         // BUY = tokens come FROM the pool TO a wallet
@@ -156,7 +156,7 @@ async function checkLatestBlock() {
                         const isSell = toAddr.toLowerCase() === POOL_ADDRESS && 
                                        fromAddr.toLowerCase() !== POOL_ADDRESS;
                         
-                        console.log(`   🔄 ${pixelAmount.toLocaleString()} PIXEL ($${usdValue.toFixed(2)})`);
+                        console.log(`   🔄 ${zlurAmount.toLocaleString()} zlur ($${usdValue.toFixed(2)})`);
                         console.log(`      From: ${fromAddr.slice(0, 15)}... ${isBuy ? '✅ POOL' : ''}`);
                         console.log(`      To: ${toAddr.slice(0, 15)}...`);
                         
@@ -164,12 +164,12 @@ async function checkLatestBlock() {
                             console.log(`   🎯 BUY DETECTED! $${usdValue.toFixed(2)} worth`);
                             console.log(`   ✅ Buyer: ${toAddr}`);
                             
-                            await sendAlert(usdValue, usdValue, pixelAmount, txHash, lastMarketCap, toAddr);
+                            await sendAlert(usdValue, usdValue, zlurAmount, txHash, lastMarketCap, toAddr);
                             processedTxs.add(txHash);
                             
                             await new Promise(resolve => setTimeout(resolve, 500));
                         } else if (isSell) {
-                            console.log(`   ⏭️ SELL ignored: ${pixelAmount.toLocaleString()} PIXEL to pool`);
+                            console.log(`   ⏭️ SELL ignored: ${zlurAmount.toLocaleString()} zlur to pool`);
                         } else {
                             console.log(`   ⏭️ Transfer ignored (wallet to wallet)`);
                         }
@@ -190,18 +190,18 @@ async function checkLatestBlock() {
 
 async function start() {
     console.log("\n========================================");
-    console.log("🎨 PIXEL Buy Bot - BUYS ONLY");
+    console.log("🎨 zlur Buy Bot - BUYS ONLY");
     console.log("========================================\n");
     
-    if (!TOKEN || !CHAT_ID || !PIXEL_TOKEN) {
+    if (!TOKEN || !CHAT_ID || !zlur_TOKEN) {
         console.error("❌ Missing .env variables!");
         process.exit(1);
     }
     
     console.log("✅ Configuration loaded");
-    console.log("✅ Token:", PIXEL_TOKEN.slice(0, 10) + "...");
+    console.log("✅ Token:", zlur_TOKEN.slice(0, 10) + "...");
     console.log("✅ Pool Address:", POOL_ADDRESS.slice(0, 15) + "...");
-    console.log(`✅ Min PIXEL: ${MIN_PIXEL_AMOUNT.toLocaleString()}`);
+    console.log(`✅ Min zlur: ${MIN_zlur_AMOUNT.toLocaleString()}`);
     console.log("\n🚀 BOT IS LIVE! Monitoring ONLY BUY transactions...");
     console.log("📊 Will detect when tokens come FROM pool TO wallet\n");
     

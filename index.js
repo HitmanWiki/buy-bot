@@ -40,7 +40,6 @@ function getGif(usdAmount) {
 
 async function getTokenData() {
     try {
-        // Use token-specific endpoint (most reliable)
         const response = await axios.get(
             `https://api.dexscreener.com/latest/dex/tokens/${zlur_TOKEN}`,
             { timeout: 10000 }
@@ -51,14 +50,14 @@ async function getTokenData() {
             const price = parseFloat(pair.priceUsd);
             const marketCap = pair.fdv || pair.marketCap || 0;
             
-            console.log(`✅ DexScreener: Price=$${price}, MC=$${marketCap.toLocaleString()}`);
+            console.log(`📊 Live Data: Price=$${price}, MC=$${marketCap.toLocaleString()}`);
             return { price, marketCap };
         }
     } catch (error) {
         console.log(`⚠️ DexScreener error: ${error.message}`);
     }
     
-    // Return last known values instead of hardcoded fallback
+    // Return last known values
     return { price: lastPrice || 0.00000894, marketCap: lastMarketCap || 8940 };
 }
 
@@ -90,7 +89,7 @@ async function sendAlert(usdSpent, monSpent, zlurAmount, txHash, marketCap, buye
             parse_mode: "HTML"
         });
         
-        console.log(`✅ BUY ALERT SENT to Telegram!`);
+        console.log(`✅ ALERT SENT: $${usdSpent.toFixed(2)} | MC: $${marketCap.toLocaleString()}`);
     } catch (error) {
         console.log("⚠️ Send failed:", error.message);
         await bot.sendMessage(CHAT_ID, message, { parse_mode: "HTML" });
@@ -106,7 +105,7 @@ async function refreshPrice() {
     const data = await getTokenData();
     lastPrice = data.price;
     lastMarketCap = data.marketCap;
-    console.log(`💰 Price: $${lastPrice} | MC: $${lastMarketCap.toLocaleString()}`);
+    console.log(`💰 Price updated: $${lastPrice} | MC: $${lastMarketCap.toLocaleString()}`);
 }
 
 async function checkLatestBlock() {
@@ -148,6 +147,9 @@ async function checkLatestBlock() {
                         
                         if (zlurAmount < MIN_zlur_AMOUNT) continue;
                         
+                        // 🔥 CRITICAL: Refresh price BEFORE every potential buy
+                        await refreshPrice();
+                        
                         const usdValue = zlurAmount * lastPrice;
                         
                         const isBuy = fromAddr.toLowerCase() === POOL_ADDRESS && 
@@ -163,6 +165,7 @@ async function checkLatestBlock() {
                         if (isBuy) {
                             console.log(`   🎯 BUY DETECTED! $${usdValue.toFixed(2)} worth`);
                             console.log(`   ✅ Buyer: ${toAddr}`);
+                            console.log(`   📊 Market Cap at buy time: $${lastMarketCap.toLocaleString()}`);
                             
                             await sendAlert(usdValue, usdValue, zlurAmount, txHash, lastMarketCap, toAddr);
                             processedTxs.add(txHash);
@@ -186,7 +189,7 @@ async function checkLatestBlock() {
 
 async function start() {
     console.log("\n========================================");
-    console.log("🎨 zlur Buy Bot - BUYS ONLY");
+    console.log("🎨 zlur Buy Bot - REAL-TIME MARKET CAP");
     console.log("========================================\n");
     
     if (!TOKEN || !CHAT_ID || !zlur_TOKEN) {
@@ -198,8 +201,7 @@ async function start() {
     console.log("✅ Token:", zlur_TOKEN.slice(0, 10) + "...");
     console.log("✅ Pool Address:", POOL_ADDRESS.slice(0, 15) + "...");
     console.log(`✅ Min zlur: ${MIN_zlur_AMOUNT.toLocaleString()}`);
-    console.log("\n🚀 BOT IS LIVE! Monitoring ONLY BUY transactions...");
-    console.log("📊 Will detect when tokens come FROM pool TO wallet\n");
+    console.log("\n🚀 BOT IS LIVE! Fetching LIVE market cap on EVERY buy...\n");
     
     setInterval(checkLatestBlock, 2000);
     await checkLatestBlock();

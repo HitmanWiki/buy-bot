@@ -8,14 +8,13 @@ const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const RPC_URL = process.env.MONAD_RPC_URL;
 const zlur_TOKEN = process.env.zlur_TOKEN_ADDRESS;
 
-// The Uniswap V3 Pool address (where buys come FROM)
 const POOL_ADDRESS = "0xC5C77b7aBD9BBeF47e06e234313C1eB413EcA52d".toLowerCase();
 
 const bot = new TelegramBot(TOKEN, { polling: false });
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-const MIN_zlur_AMOUNT = 100; // Minimum 100 zlur to alert
+const MIN_zlur_AMOUNT = 100;
 
 const GIFS = {
     small: "https://zlurpeeonmonad.fun/buy.mp4",
@@ -41,19 +40,26 @@ function getGif(usdAmount) {
 
 async function getTokenData() {
     try {
+        // Use token-specific endpoint (most reliable)
         const response = await axios.get(
-            `https://api.dexscreener.com/latest/dex/search?q=${zlur_TOKEN}`,
-            { timeout: 5000 }
+            `https://api.dexscreener.com/latest/dex/tokens/${zlur_TOKEN}`,
+            { timeout: 10000 }
         );
+        
         if (response.data.pairs && response.data.pairs[0]) {
             const pair = response.data.pairs[0];
-            return {
-                price: parseFloat(pair.priceUsd),
-                marketCap: pair.fdv || pair.marketCap || 0
-            };
+            const price = parseFloat(pair.priceUsd);
+            const marketCap = pair.fdv || pair.marketCap || 0;
+            
+            console.log(`✅ DexScreener: Price=$${price}, MC=$${marketCap.toLocaleString()}`);
+            return { price, marketCap };
         }
-    } catch (error) {}
-    return { price: 0.00000703, marketCap: 7034 };
+    } catch (error) {
+        console.log(`⚠️ DexScreener error: ${error.message}`);
+    }
+    
+    // Return last known values instead of hardcoded fallback
+    return { price: lastPrice || 0.00000894, marketCap: lastMarketCap || 8940 };
 }
 
 function formatMessage(usdSpent, monSpent, zlurAmount, txHash, marketCap, buyerAddress) {
@@ -93,8 +99,8 @@ async function sendAlert(usdSpent, monSpent, zlurAmount, txHash, marketCap, buye
 
 let lastProcessedBlock = null;
 const processedTxs = new Set();
-let lastPrice = 0.00000703;
-let lastMarketCap = 7034;
+let lastPrice = 0.00000894;
+let lastMarketCap = 8940;
 
 async function refreshPrice() {
     const data = await getTokenData();
@@ -105,7 +111,6 @@ async function refreshPrice() {
 
 async function checkLatestBlock() {
     try {
-        // ✅ FIXED: ethers v5 syntax
         const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
         const currentBlock = await provider.getBlockNumber();
         
@@ -134,25 +139,20 @@ async function checkLatestBlock() {
                     
                     for (const log of logs) {
                         const txHash = log.transactionHash;
-                        
                         if (processedTxs.has(txHash)) continue;
                         
                         const fromAddr = "0x" + log.topics[1].slice(26);
                         const toAddr = "0x" + log.topics[2].slice(26);
                         const value = BigInt(log.data);
-                        // ✅ FIXED: ethers v5 syntax
                         const zlurAmount = Number(ethers.utils.formatEther(value));
                         
                         if (zlurAmount < MIN_zlur_AMOUNT) continue;
                         
                         const usdValue = zlurAmount * lastPrice;
                         
-                        // CORRECT BUY DETECTION:
-                        // BUY = tokens come FROM the pool TO a wallet
                         const isBuy = fromAddr.toLowerCase() === POOL_ADDRESS && 
                                       toAddr.toLowerCase() !== POOL_ADDRESS;
                         
-                        // SELL = tokens go FROM a wallet TO the pool (we ignore)
                         const isSell = toAddr.toLowerCase() === POOL_ADDRESS && 
                                        fromAddr.toLowerCase() !== POOL_ADDRESS;
                         
@@ -166,12 +166,9 @@ async function checkLatestBlock() {
                             
                             await sendAlert(usdValue, usdValue, zlurAmount, txHash, lastMarketCap, toAddr);
                             processedTxs.add(txHash);
-                            
                             await new Promise(resolve => setTimeout(resolve, 500));
                         } else if (isSell) {
                             console.log(`   ⏭️ SELL ignored: ${zlurAmount.toLocaleString()} zlur to pool`);
-                        } else {
-                            console.log(`   ⏭️ Transfer ignored (wallet to wallet)`);
                         }
                     }
                 } catch (error) {
@@ -180,7 +177,6 @@ async function checkLatestBlock() {
                     }
                 }
             }
-            
             lastProcessedBlock = currentBlock;
         }
     } catch (error) {
